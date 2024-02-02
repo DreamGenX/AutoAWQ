@@ -44,7 +44,7 @@ def get_calib_dataset(data: Union[str, List[str], List[List[int]]] = "pileval",
             sample_raw = line_encoded[i:i+block_size]
             if len(sample_raw) < block_size * 0.75:
                 continue
-            sample = torch.tensor(sample_raw)
+            sample = torch.tensor([sample_raw])
             samples.append(sample)
             if len(samples) >= n_samples:
                 break
