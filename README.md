@@ -70,33 +70,6 @@ All three methods will install the latest and correct kernels for your system fr
 
 If your system is not supported (i.e. not on the release page), you can build the kernels yourself by following the instructions in [AutoAWQ_Kernels](https://github.com/casper-hansen/AutoAWQ_kernels/releases) and then install AutoAWQ from source.
 
-## Supported models
-
-The detailed support list:
-
-| Models   | Sizes                       |
-| -------- | --------------------------- |
-| LLaMA-2  | 7B/13B/70B                  |
-| LLaMA    | 7B/13B/30B/65B              |
-| Mistral  | 7B                          |
-| Vicuna   | 7B/13B                      |
-| MPT      | 7B/30B                      |
-| Falcon   | 7B/40B                      |
-| OPT      | 125m/1.3B/2.7B/6.7B/13B/30B |
-| Bloom    | 560m/3B/7B/                 |
-| GPTJ     | 6.7B                        |
-| Aquila   | 7B                          |
-| Aquila2  | 7B/34B                      |
-| Yi       | 6B/34B                      |
-| Qwen     | 1.8B/7B/14B/72B             |
-| BigCode  | 1B/7B/15B                   |
-| GPT NeoX | 20B                         |
-| GPT-J    | 6B                          |
-| LLaVa    | 7B/13B                      |
-| Mixtral  | 8x7B                        |
-| Baichuan | 7B/13B                      |
-| QWen     | 1.8B/7B/14/72B              |
-
 ## Usage
 
 Under examples, you can find examples of how to quantize, run inference, and benchmark AutoAWQ models.
@@ -122,7 +95,7 @@ Fused modules are a large part of the speedup you get from AutoAWQ. The idea is 
 - Fused modules are activated when you use `fuse_layers=True`.
 - A custom cache is implemented. It preallocates based on batch size and sequence length.
     - You cannot change the sequence length after you have created your model.
-    - Reference: `AutoAWQForCausalLM.from_quantized(max_new_tokens=seq_len, batch_size=batch_size)`
+    - Reference: `AutoAWQForCausalLM.from_quantized(max_seq_len=seq_len, batch_size=batch_size)`
 - The main accelerator in the fused modules comes from FasterTransformer, which is only compatible with Linux.
 - The `past_key_values` from `model.generate()` are only dummy values, so they cannot be used after generation.
 
@@ -194,7 +167,7 @@ tokens = tokenizer(
 generation_output = model.generate(
     tokens, 
     streamer=streamer,
-    max_new_tokens=512
+    max_seq_len=512
 )
 ```
 
@@ -243,6 +216,21 @@ These benchmarks showcase the speed and memory usage of processing context (pref
 | ...        | ...  | ...     | ...        | ...            | ...           | ...              | ...             | ...               |
 | DeepSeek   | 33B  | 🔵GEMM   | 1          | 64             | 64            | 1160.18          | 40.29           | 18.92 GB (80.00%) |
 | DeepSeek   | 33B  | 🔵GEMM   | 1          | 2048           | 2048          | 1012.1           | 34.0093         | 19.87 GB (84.02%) |
+
+### Multi-GPU
+
+GPU: 2x NVIDIA GeForce RTX 4090
+
+| Model | Size    | Version       |   Batch Size |   Prefill Length |   Decode Length |   Prefill tokens/s |   Decode tokens/s | Memory (VRAM)     |
+|--------:|------:|--------------:|-------------:|-----------------:|----------------:|-------------------:|------------------:|:------------------|
+| Mixtral | 46.7B | 🔵GEMM        |            1 |               32 |              32 |            149.742 |           93.406  | 25.28 GB (53.44%) |
+| Mixtral | 46.7B | 🔵GEMM        |            1 |               64 |              64 |           1489.64  |           93.184  | 25.32 GB (53.53%) |
+| Mixtral | 46.7B | 🔵GEMM        |            1 |              128 |             128 |           2082.95  |           92.9444 | 25.33 GB (53.55%) |
+| Mixtral | 46.7B | 🔵GEMM        |            1 |              256 |             256 |           2428.59  |           91.5187 | 25.35 GB (53.59%) |
+| Mixtral | 46.7B | 🔵GEMM        |            1 |              512 |             512 |           2633.11  |           89.1457 | 25.39 GB (53.67%) |
+| Mixtral | 46.7B | 🔵GEMM        |            1 |             1024 |            1024 |           2598.95  |           84.6753 | 25.75 GB (54.44%) |
+| Mixtral | 46.7B | 🔵GEMM        |            1 |             2048 |            2048 |           2446.15  |           77.0516 | 27.98 GB (59.15%) |
+| Mixtral | 46.7B | 🔵GEMM        |            1 |             4096 |            4096 |           1985.78  |           77.5689 | 34.65 GB (73.26%) |
 
 ## Reference
 

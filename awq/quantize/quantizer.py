@@ -9,9 +9,12 @@ from collections import defaultdict
 from awq.utils.calib_data import get_calib_dataset
 from awq.quantize.scale import apply_scale, apply_clip
 from awq.utils.utils import clear_memory, get_best_device
-from awq.modules.linear.gemm import WQLinear_GEMM
-from awq.modules.linear.gemv import WQLinear_GEMV
-from awq.modules.linear.marlin import WQLinear_Marlin
+from awq.modules.linear import (
+    WQLinear_GEMM,
+    WQLinear_GEMV,
+    WQLinear_Marlin,
+    WQLinear_GEMVFast,
+)
 from awq.utils.module import (
     append_str_prefix,
     get_op_name,
@@ -117,7 +120,7 @@ class AwqQuantizer:
                     best_device = "cuda:" + str(i % torch.cuda.device_count())
                 else:
                     best_device = get_best_device()
-                
+
                 self.modules[i] = self.modules[i].to(best_device)
                 common_device = next(self.modules[i].parameters()).device
 
@@ -190,16 +193,19 @@ class AwqQuantizer:
                 linear_layer.weight.data
             )
 
-            if self.version == "GEMM":
+            if self.version == "gemm":
                 scales = scales.t().contiguous()
                 zeros = zeros.t().contiguous()
                 q_linear_module = WQLinear_GEMM
 
-            elif self.version == "GEMV":
+            elif self.version == "gemv":
                 q_linear_module = WQLinear_GEMV
 
-            elif self.version == "Marlin":
+            elif self.version == "marlin":
                 q_linear_module = WQLinear_Marlin
+            
+            elif self.version == "gemv_fast":
+                q_linear_module = WQLinear_GEMVFast
 
             else:
                 raise ValueError(f"Unknown version {self.version}")
@@ -355,7 +361,9 @@ class AwqQuantizer:
                 continue
 
             named_linears[name].to(get_best_device())
-            max_val = self._compute_best_clip(named_linears[name].weight, input_feat[name])
+            max_val = self._compute_best_clip(
+                named_linears[name].weight, input_feat[name]
+            )
             clip_list.append((name, max_val))
             named_linears[name].cpu()
 
@@ -464,6 +472,7 @@ class AwqQuantizer:
             self.model(samples.to(next(self.model.parameters()).device))
         except ValueError:  # work with early exit
             pass
+        modules[0] = modules[0].module  # restore
 
         # Update the layer kwargs with `prepare_inputs_for_generation` method
         # that takes care of everything to avoid unexpected errors.
@@ -472,7 +481,6 @@ class AwqQuantizer:
         layer_kwargs.pop("input_ids")
 
         del samples
-        modules[0] = modules[0].module  # restore
         inps = inps[0]
 
         modules[0] = modules[0].cpu()
@@ -481,7 +489,9 @@ class AwqQuantizer:
         clear_memory()
 
         if layer_kwargs.get("attention_mask") is not None:
-            layer_kwargs["attention_mask"] = layer_kwargs["attention_mask"].to(best_device)
+            layer_kwargs["attention_mask"] = layer_kwargs["attention_mask"].to(
+                best_device
+            )
 
         return modules, layer_kwargs, inps
 

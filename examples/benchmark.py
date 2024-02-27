@@ -98,7 +98,7 @@ def run_round(generator, model_path, quant_file, n_generate, input_ids, batch_si
     else:
         model = AutoAWQForCausalLM.from_quantized(
             model_path, quant_file, fuse_layers=True,
-            max_new_tokens=n_generate, batch_size=batch_size,
+            max_seq_len=n_generate, batch_size=batch_size,
             safetensors=not no_safetensors
         )
 
@@ -115,20 +115,23 @@ def run_round(generator, model_path, quant_file, n_generate, input_ids, batch_si
             successful_generate = False
         else:
             raise RuntimeError(ex)
-    
-    device = next(model.parameters()).device
-    memory_used = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
-    memory_pct = memory_used / (torch.cuda.get_device_properties(device).total_memory / (1024 ** 3)) * 100
 
+    total_memory_used = 0
+    memory_pct = 100
     if successful_generate:
         # number of tokens in context / time for processing context * batch size
-        prefill_tokens_per_second = input_ids.shape[1] / context_time * batch_size
+        prefill_tokens_per_second = round(input_ids.shape[1] / context_time * batch_size, 2)
         # 1 second / median time per token in seconds * batch size
-        decode_tokens_per_second = 1 / np.median(generate_time) * batch_size
+        decode_tokens_per_second = round(1 / np.median(generate_time) * batch_size, 2)
 
         print(f" ** Speed (Prefill): {prefill_tokens_per_second:.2f} tokens/second")
         print(f" ** Speed (Decode): {decode_tokens_per_second:.2f} tokens/second")
-        print(f" ** Max Memory (VRAM): {memory_used:.2f} GB ({memory_pct:.2f}%)")
+
+        for device in range(torch.cuda.device_count()):
+            memory_used = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
+            total_memory_used += memory_used
+            memory_pct = memory_used / (torch.cuda.get_device_properties(device).total_memory / (1024 ** 3)) * 100
+            print(f" ** Max Memory (device: {device}): {memory_used:.2f} GB ({memory_pct:.2f}%)")
     else:
         prefill_tokens_per_second = 'OOM'
         decode_tokens_per_second = 'OOM'
@@ -144,7 +147,7 @@ def run_round(generator, model_path, quant_file, n_generate, input_ids, batch_si
         "Decode Length": n_generate,
         "Prefill tokens/s": prefill_tokens_per_second,
         "Decode tokens/s": decode_tokens_per_second,
-        "Memory (VRAM)": f"{memory_used:.2f} GB ({memory_pct:.2f}%)"
+        "Memory (VRAM)": f"{total_memory_used:.2f} GB ({memory_pct:.2f}%)"
     }, version
 
 def main(args):

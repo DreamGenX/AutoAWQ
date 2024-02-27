@@ -2,9 +2,9 @@ import os
 import torch
 import platform
 import requests
-import importlib.util
 from pathlib import Path
 from setuptools import setup, find_packages
+from torch.utils.cpp_extension import CUDAExtension
 
 
 def get_latest_kernels_version(repo):
@@ -31,7 +31,7 @@ def get_kernels_whl_url(
     return f"https://github.com/casper-hansen/AutoAWQ_kernels/releases/download/v{release_version}/autoawq_kernels-{release_version}+{gpu_system_version}-cp{python_version}-cp{python_version}-{platform}_{architecture}.whl"
 
 
-AUTOAWQ_VERSION = "0.1.8"
+AUTOAWQ_VERSION = "0.2.2"
 PYPI_BUILD = os.getenv("PYPI_BUILD", "0") == "1"
 
 CUDA_VERSION = os.getenv("CUDA_VERSION", None) or torch.version.cuda
@@ -88,22 +88,28 @@ requirements = [
     "torch>=2.0.1",
     "transformers>=4.35.0",
     "tokenizers>=0.12.1",
+    "typing_extensions>=4.8.0",
     "accelerate",
     "datasets",
+    "zstandard",
 ]
 
 try:
-    importlib.metadata.version("autoawq-kernels")
+    if ROCM_VERSION:
+        import exlv2_ext
+    else:
+        import awq_ext
+
     KERNELS_INSTALLED = True
-except importlib.metadata.PackageNotFoundError:
+except ImportError:
     KERNELS_INSTALLED = False
 
 # kernels can be downloaded from pypi for cuda+121 only
 # for everything else, we need to download the wheels from github
 if not KERNELS_INSTALLED and (CUDA_VERSION or ROCM_VERSION):
-    if CUDA_VERSION.startswith("12"):
+    if CUDA_VERSION and CUDA_VERSION.startswith("12"):
         requirements.append("autoawq-kernels")
-    elif CUDA_VERSION.startswith("11") or ROCM_VERSION in ["561", "571"]:
+    elif CUDA_VERSION and CUDA_VERSION.startswith("11") or ROCM_VERSION in ["561", "571"]:
         gpu_system_version = (
             f"cu{CUDA_VERSION}" if CUDA_VERSION else f"rocm{ROCM_VERSION}"
         )
@@ -125,11 +131,24 @@ if not KERNELS_INSTALLED and (CUDA_VERSION or ROCM_VERSION):
             "Please install the kernels manually from https://github.com/casper-hansen/AutoAWQ_kernels"
         )
 
+force_extension = os.getenv("PYPI_FORCE_TAGS", "0")
+if force_extension == "1":
+    # NOTE: We create an empty CUDAExtension because torch helps us with
+    # creating the right boilerplate to enable correct targeting of
+    # the autoawq-kernels package
+    common_setup_kwargs["ext_modules"] = [
+        CUDAExtension(
+            name="test_kernel",
+            sources=[],
+        )
+    ]
+
 setup(
     packages=find_packages(),
     install_requires=requirements,
     extras_require={
         "eval": ["lm_eval>=0.4.0", "tabulate", "protobuf", "evaluate", "scipy"],
+        "dev": ["black", "mkdocstrings-python", "mkdocs-material", "griffe-typingdoc"]
     },
     **common_setup_kwargs,
 )

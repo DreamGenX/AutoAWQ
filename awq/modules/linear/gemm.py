@@ -11,6 +11,7 @@ try:
 except:
     AWQ_INSTALLED = False
 
+
 # Adapted from https://github.com/compressa-ai/AutoAWQ/tree/dev
 class WQLinearMMFunction(Function):
     @staticmethod
@@ -24,45 +25,29 @@ class WQLinearMMFunction(Function):
         w_bit=4,
         group_size=128,
         bias=None,
-        out_features=0
+        out_features=0,
     ):
         # The forward pass can use ctx.
         ctx.save_for_backward(x, qweight, qzeros, scales, bias)
         ctx.out_features = out_features
 
-        out_shape = x.shape[:-1] + (out_features, )
+        out_shape = x.shape[:-1] + (out_features,)
         x = x.to(torch.float16)
 
         if AWQ_INSTALLED:
-            FP16_MATMUL_HEURISTIC_CONDITION = x.shape[0]*x.shape[1] >= 1024
+            FP16_MATMUL_HEURISTIC_CONDITION = x.shape[0] * x.shape[1] >= 1024
 
             if FP16_MATMUL_HEURISTIC_CONDITION:
                 out = awq_ext.dequantize_weights_cuda(
-                    qweight,
-                    scales,
-                    qzeros,
-                    0,
-                    0,
-                    0,
-                    False
+                    qweight, scales, qzeros, 0, 0, 0, False
                 )
                 out = torch.matmul(x, out)
             else:
                 out = awq_ext.gemm_forward_cuda(
-                    x.reshape(-1, x.shape[-1]),
-                    qweight,
-                    scales,
-                    qzeros,
-                    8
+                    x.reshape(-1, x.shape[-1]), qweight, scales, qzeros, 8
                 )
         else:
-            out = dequantize_gemm(
-                qweight,
-                qzeros,
-                scales,
-                w_bit,
-                group_size
-            )
+            out = dequantize_gemm(qweight, qzeros, scales, w_bit, group_size)
             out = torch.matmul(x, out)
 
         out = out + bias if bias is not None else out
@@ -71,22 +56,23 @@ class WQLinearMMFunction(Function):
         # always want 3D tensor if tensor is 2D
         if len(out.shape) == 2:
             out = out.unsqueeze(0)
-        
+
         return out
 
     @staticmethod
     def backward(ctx, grad_output):
         input, qweight, qzeros, scales, bias = ctx.saved_tensors
 
+        if awq_ext is None:
+            raise ValueError(
+                "auto-awq kernels is needed to be installed to use `.backward()`. Make sure to install the auto-awq kernels"
+                " by following the installation guides in https://github.com/casper-hansen/AutoAWQ_kernels"
+            )
+
+        # Cast to correct dtype for mixed precision training
         weights = awq_ext.dequantize_weights_cuda(
-            qweight,
-            scales,
-            qzeros,
-            1,
-            0,
-            0,
-            False
-        )
+            qweight, scales, qzeros, 1, 0, 0, False
+        ).to(grad_output.dtype)
 
         if ctx.needs_input_grad[0]:
             # 3D matmul using torch.bmm: https://pytorch.org/docs/stable/generated/torch.bmm.html#torch.bmm
@@ -96,9 +82,10 @@ class WQLinearMMFunction(Function):
 
         return grad_input, None, None, None, None, None, None, None
 
-
 class WQLinear_GEMM(nn.Module):
-    def __init__(self, w_bit, group_size, in_features, out_features, bias, dev, training=False):
+    def __init__(
+        self, w_bit, group_size, in_features, out_features, bias, dev, training=False
+    ):
         super().__init__()
 
         if w_bit not in [4]:
