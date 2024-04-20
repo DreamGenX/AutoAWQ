@@ -83,6 +83,14 @@ class LlamaLikeModel(nn.Module):
         self.blocks: List[LlamaLikeBlock] = nn.ModuleList(blocks)
         self.norm = norm
         self.last_forward_num_tokens = 0
+        
+    @property
+    def embed_tokens(self):
+        return self.embedding
+    
+    @property
+    def layers(self):
+        return self.blocks
 
     @torch.inference_mode()
     def forward(
@@ -116,14 +124,14 @@ class LlamaLikeModel(nn.Module):
                 h,
                 mask,
             )
-            h, _, past_key_value = layer(
+            h, _, _ = layer(
                 h, None, attention_mask=mask, is_causal=is_causal
             )
         h = self.norm(h)
 
         return BaseModelOutputWithPast(
             last_hidden_state=h,
-            past_key_values=past_key_value,
+            past_key_values=None,
             hidden_states=(),
             attentions=(),
         )
